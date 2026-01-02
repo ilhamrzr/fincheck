@@ -1,0 +1,566 @@
+#!/usr/bin/env python3
+"""
+fincheck — Financial Intelligence Account Checker
+
+Author:
+- Ilham (CLI)
+- API by Restu Fadhilah (https://rfpdev.site)
+
+DISCLAIMER:
+Educational & legitimate use only.
+Bulk requires API key unless --dry-run.
+"""
+
+from core.formatter import (
+    mark_progress_open,
+    mark_progress_closed,
+    print_success,
+    print_error,
+    print_warning,
+    print_info,
+    print_json,
+    print_summary_single,
+    c,
+    GREEN,
+    WHITE,
+    GRAY,
+    RESET,
+)
+from core.parser import parse_bank_response, parse_ewallet_response
+from core.client import APIClient
+from utils.validator import find_by_key
+from config.ewallets import EWALLETS
+from config.banks import BANKS
+from datetime import datetime
+import argparse
+import sys
+import time
+import random
+import signal
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+
+def vprint(args, msg):
+    if getattr(args, "verbose", False) and not args.json and sys.stdout.isatty():
+        print(f"{GRAY}[VERBOSE]{RESET} {WHITE}{msg}{RESET}")
+
+
+JSON_MODE = False
+
+# BANNER & CREDIT
+
+VERSION = "0.1.0"
+
+
+def print_banner():
+    CYAN = "\033[96m"
+    RESET = "\033[0m"
+    if JSON_MODE:
+        return
+    banner = r'''
+    ______ _            _               _    
+    |  ___(_)          | |             | |   
+    | |_   _ _ __   ___| |__   ___  ___| | __
+    |  _| | | '_ \ / __| '_ \ / _ \/ __| |/ /
+    | |   | | | | | (__| | | |  __/ (__|   < 
+    \_|   |_|_| |_|\___|_| |_|\___|\___|_|\_\
+
+      Financial Intelligence Account Checker
+    '''
+    print(f"{CYAN}{banner}{RESET}")
+    pass
+
+
+def print_credit():
+    print(
+        f"{c(f'Coded by Ilham | v{VERSION} | https://github.com/ilhamrzr/fincheck\n', GRAY)}"
+    )
+
+
+class BannerArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        from sys import stderr
+        print_warning(message)
+        self.exit(2)
+
+    def print_help(self, file=None):
+        print_banner()
+        print_credit()
+        super().print_help(file)
+
+
+# ENDPOINT
+BASE_ENDPOINTS = {
+    "primary": "https://rfpdev.site",
+    "mirror1": "https://rfpdevid.site",
+    "mirror2": "https://rfpdev.me",
+}
+ENDPOINT_ORDER = ["primary", "mirror1", "mirror2"]
+
+
+# HELPERS
+def get_urls(base):
+    return {
+        "bank": f"{base}/api/check-rekening",
+        "ewallet": f"{base}/api/check-ewallet",
+    }
+
+
+def request_with_fallback(endpoint, payload, target, timeout):
+    order = [endpoint] + [e for e in ENDPOINT_ORDER if e != endpoint]
+    for key in order:
+        url = get_urls(BASE_ENDPOINTS[key])[target]
+        resp = APIClient(timeout).post(url, payload)
+        if resp.get("status") != "error":
+            return resp, key
+    return {"status": "error", "message": "All endpoints failed"}, None
+
+
+def delay():
+    time.sleep(random.uniform(0.8, 2.0))
+
+
+_progress_open = False
+
+
+def progress(cur, total):
+    try:
+        bar = int((cur / total) * 20)
+        sys.stdout.write(f"\r[{'█' * bar}{'-' * (20 - bar)}] {cur}/{total}")
+        sys.stdout.flush()
+        mark_progress_open()
+
+        if cur == total:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            mark_progress_closed()
+
+    except BrokenPipeError:
+        sys.exit(0)
+
+
+def write_output(path, text):
+    with open(path, "a") as f:
+        f.write(text + "\n")
+
+
+# COMMANDS
+def cmd_list(args):
+    print_banner()
+    print_credit()
+
+    print_info("Supported E-Wallets:")
+    for w in EWALLETS.values():
+        print(f"  - {w['name']}")
+
+    print_info("\nSupported Banks:")
+    for b in BANKS.values():
+        print(f"  - {b['name']}")
+
+
+def cmd_ewallet(args):
+    if (
+        not getattr(args, "_bulk_mode", False)
+        and not args.json
+        and sys.stdout.isatty()
+    ):
+        print_banner()
+        print_credit()
+
+    wallet = find_by_key(EWALLETS, args.wallet)
+    if not wallet:
+        if args.json:
+            print_json({
+                "type": "ewallet",
+                "wallet": args.wallet,
+                "phone_number": args.phone,
+                "result": "FAILED",
+                "error": "Unsupported e-wallet"
+            })
+        else:
+            print_error("Unsupported e-wallet")
+            print_summary_single("E-Wallet", args.wallet, args.phone, "FAILED")
+        return False
+
+    payload = {
+        "phone_number": args.phone,
+        "ewallet_code": wallet["code"],
+        "api_key": args.api_key or ""
+    }
+
+    vprint(args, f"Mode        : {'DRY-RUN' if args.dry_run else 'LIVE'}")
+    vprint(args, "Target      : E-Wallet")
+    vprint(args, f"Provider    : {wallet['name']}")
+    vprint(args, f"Endpoint    : {args.endpoint}")
+    vprint(args, f"Timeout     : {args.timeout}s")
+    vprint(args, f"API Key     : {'SET' if args.api_key else 'NOT SET'}")
+    vprint(args, "Payload     :")
+    vprint(args, f"  - ewallet_code: {wallet['code']}")
+    vprint(args, f"  - phone_number: {args.phone}")
+
+    if args.dry_run:
+        if args.json:
+            print_json({
+                "type": "ewallet",
+                "wallet": wallet["name"],
+                "phone_number": args.phone,
+                "result": "DRY-RUN"
+            })
+        else:
+            print_warning("DRY-RUN mode active — no request sent to API")
+            print_summary_single(
+                "E-Wallet", wallet["name"], args.phone, "DRY-RUN")
+        return True
+
+    _t0 = time.time()
+    resp, used = request_with_fallback(
+        args.endpoint, payload, "ewallet", args.timeout
+    )
+    vprint(args, f"Latency     : {time.time() - _t0:.2f}s")
+
+    parsed, err = parse_ewallet_response(resp)
+    if err:
+        if args.json:
+            print_json({
+                "type": "ewallet",
+                "wallet": wallet["name"],
+                "phone_number": args.phone,
+                "result": "FAILED",
+                "error": err
+            })
+        else:
+            print_error(err)
+            print_summary_single(
+                "E-Wallet", wallet["name"], args.phone, "FAILED")
+        return False
+
+    if args.json:
+        print_json({
+            "type": "ewallet",
+            "wallet": wallet["name"],
+            "phone_number": args.phone,
+            "result": "SUCCESS",
+            "data": parsed
+        })
+    else:
+        print_success(f"E-WALLET VALID (via {used})", parsed)
+        print_summary_single("E-Wallet", wallet["name"], args.phone, "SUCCESS")
+
+    return True
+
+
+def cmd_bank(args):
+    if (
+        not getattr(args, "_bulk_mode", False)
+        and not args.json
+        and sys.stdout.isatty()
+    ):
+        print_banner()
+        print_credit()
+
+    bank = find_by_key(BANKS, args.bank)
+    if not bank:
+        if args.json:
+            print_json({
+                "type": "bank",
+                "bank": args.bank,
+                "account_number": args.account,
+                "result": "FAILED",
+                "error": "Unsupported bank"
+            })
+        else:
+            print_error("Unsupported bank")
+            print_summary_single("Bank", args.bank, args.account, "FAILED")
+        return False
+
+    payload = {
+        "account_number": args.account,
+        "bank_code": bank["code"],
+        "api_key": args.api_key or ""
+    }
+
+    vprint(args, f"Mode        : {'DRY-RUN' if args.dry_run else 'LIVE'}")
+    vprint(args, "Target      : Bank")
+    vprint(args, f"Provider    : {bank['name']}")
+    vprint(args, f"Endpoint    : {args.endpoint}")
+    vprint(args, f"Timeout     : {args.timeout}s")
+    vprint(args, f"API Key     : {'SET' if args.api_key else 'NOT SET'}")
+    vprint(args, "Payload     :")
+    vprint(args, f"  - bank_code: {bank['code']}")
+    vprint(args, f"  - account_number: {args.account}")
+
+    if args.dry_run:
+        if args.json:
+            print_json({
+                "type": "bank",
+                "bank": bank["name"],
+                "account_number": args.account,
+                "result": "DRY-RUN"
+            })
+        else:
+            print_warning("DRY-RUN mode active — no request sent to API")
+            print_summary_single("Bank", bank["name"], args.account, "DRY-RUN")
+        return True
+
+    _t0 = time.time()
+    resp, used = request_with_fallback(
+        args.endpoint, payload, "bank", args.timeout
+    )
+    vprint(args, f"Latency     : {time.time() - _t0:.2f}s")
+
+    parsed, err = parse_bank_response(resp)
+    if err:
+        if args.json:
+            print_json({
+                "type": "bank",
+                "bank": bank["name"],
+                "account_number": args.account,
+                "result": "FAILED",
+                "error": err
+            })
+        else:
+            print_error(err)
+            print_summary_single("Bank", bank["name"], args.account, "FAILED")
+        return False
+
+    if args.json:
+        print_json({
+            "type": "bank",
+            "bank": bank["name"],
+            "account_number": args.account,
+            "result": "SUCCESS",
+            "data": parsed
+        })
+    else:
+        print_success(f"BANK ACCOUNT VALID (via {used})", parsed)
+        print_summary_single("Bank", bank["name"], args.account, "SUCCESS")
+
+    return True
+
+
+def cmd_bulk(args):
+    if not args.json and sys.stdout.isatty():
+        print_banner()
+        print_credit()
+
+    args._bulk_mode = True
+
+    vprint(args, "Mode        : BULK")
+    vprint(args, f"Type        : {args.type}")
+    vprint(args, f"Endpoint    : {args.endpoint}")
+    vprint(args, f"Timeout     : {args.timeout}s")
+    vprint(args, f"API Key     : {'SET' if args.api_key else 'NOT SET'}")
+
+    lines = [l.strip() for l in open(args.file) if "," in l]
+    total = len(lines)
+    success = failed = 0
+
+    from datetime import datetime
+
+    for i, line in enumerate(lines, 1):
+        if not args.json and not args.verbose:
+            progress(i, total)
+
+        key, val = line.split(",", 1)
+
+        base = vars(args).copy()
+        base["_bulk_mode"] = True
+
+        if args.type == "bank":
+            new_args = args.__class__(**base, bank=key, account=val)
+            ok = cmd_bank(new_args)
+            provider = key.upper()
+            target = "Bank"
+        else:
+            new_args = args.__class__(**base, wallet=key, phone=val)
+            ok = cmd_ewallet(new_args)
+            provider = key.upper()
+            target = "E-Wallet"
+
+        if args.output:
+            with open(args.output, "a") as f:
+                f.write("---------- SUMMARY ----------\n")
+                f.write(f"Target    : {target}\n")
+                f.write(f"Provider  : {provider}\n")
+                f.write(f"Input     : {val}\n")
+                f.write(
+                    f"Result    : {'DRY-RUN' if args.dry_run else ('SUCCESS' if ok else 'FAILED')}\n")
+                f.write("-----------------------------\n")
+                f.write(f"Time      : {datetime.now().isoformat()}\n\n")
+
+        success += 1 if ok else 0
+        failed += 0 if ok else 1
+
+        if args.delay > 0:
+            time.sleep(args.delay)
+
+    if not args.json:
+        print("\n========== SUMMARY ==========")
+        print(f"Total   : {total}")
+        print(f"Success : {success}")
+        print(f"Failed  : {failed}")
+        if args.output:
+            print(f"Files saved to : {c(args.output, GREEN)}")
+        print("=============================")
+
+
+def cmd_gen_bulk(args):
+    print_banner()
+    print_credit()
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"bulk_{args.type}_{ts}.txt"
+
+    data = BANKS if args.type == "bank" else EWALLETS
+    with open(fname, "w") as f:
+        for k in list(data.keys())[:10]:
+            f.write(
+                f"{k},{'1234567890' if args.type == 'bank' else '081234567890'}\n"
+            )
+
+    print(f"{c('Bulk template saved: ', WHITE)}{c(fname, GREEN)}")
+
+
+def validate_args(args, parser):
+    # --- Global sanity checks ---
+    if args.delay is not None and args.delay < 0:
+        parser.error("--delay must be >= 0")
+
+    if args.timeout is not None and args.timeout <= 0:
+        parser.error("--timeout must be > 0")
+
+    # --- Command-specific validation ---
+    if args.command == "bulk":
+        if not args.api_key and not args.dry_run:
+            parser.error(
+                "bulk mode requires --api-key (or use --dry-run)"
+            )
+
+    if args.command != "bulk" and args.delay:
+        print_warning("--delay is ignored outside bulk mode")
+
+    if args.command in ("list", "gen-bulk") and args.output:
+        parser.error(
+            f"--output is not applicable for '{args.command}' command"
+        )
+
+
+# MAIN
+def main():
+    parser = BannerArgumentParser(
+        prog="fincheck",
+        description="FINCHECK — Financial Intelligence Account Checker",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  fincheck list\n"
+            "  fincheck bank bca 1234567890\n"
+            "  fincheck ewallet dana 08xxxxxxx\n"
+            "  fincheck bulk bank banks.txt --api-key YOUR_API_KEY\n"
+        )
+    )
+
+    parser.add_argument("--version", action="store_true", help="Show version")
+    parser.add_argument(
+        "--api-key", help="API key (optional / required for bulk)")
+    parser.add_argument("--json", action="store_true",
+                        help="Output JSON format")
+    parser.add_argument("-v", "--verbose",
+                        action="store_true", help="Verbose output")
+    parser.add_argument("-d", "--delay", type=float, default=0,
+                        help="Delay between bulk requests (sec)")
+    parser.add_argument("-t", "--timeout", type=int, default=10,
+                        help="Request timeout (sec)")
+    parser.add_argument(
+        "--endpoint", choices=BASE_ENDPOINTS, default="primary")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Simulate without API call")
+    parser.add_argument(
+        "-o", "--output", help="Save result summary to a text file")
+
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("list", help="Show supported banks and e-wallets")
+
+    b = sub.add_parser(
+        "bank",
+        help="Check bank account",
+        epilog="Example:\n  fincheck bank bca 1234567890",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    b.add_argument("bank")
+    b.add_argument("account")
+
+    e = sub.add_parser(
+        "ewallet",
+        help="Check e-wallet account",
+        epilog="Example:\n  fincheck ewallet dana 08xxxxxxx",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    e.add_argument("wallet")
+    e.add_argument("phone")
+
+    bulk = sub.add_parser(
+        "bulk",
+        help="Bulk check from file",
+        epilog=(
+            "Examples:\n"
+            "  fincheck bulk bank banks.txt --api-key YOUR_API_KEY\n"
+            "  fincheck bulk ewallet wallets.txt --api-key YOUR_API_KEY"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bulk.add_argument("type", choices=["bank", "ewallet"])
+    bulk.add_argument("file")
+
+    gen = sub.add_parser(
+        "gen-bulk",
+        help="Generate bulk list template",
+        epilog=(
+            "Examples:\n"
+            "  fincheck gen-bulk bank\n"
+            "  fincheck gen-bulk ewallet"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    gen.add_argument("type", choices=["bank", "ewallet"])
+
+    args, remaining = parser.parse_known_args()
+    args = parser.parse_args(remaining, namespace=args)
+    validate_args(args, parser)
+
+    global JSON_MODE
+    JSON_MODE = args.json
+
+    if len(sys.argv) == 1 and sys.stdout.isatty():
+        if not args.json:
+            print_banner()
+            print_credit()
+            print_warning("No command provided.")
+            print_info("Try one of these:")
+            print("  fincheck -h")
+            print("  fincheck list")
+            print("  fincheck bank <bank> <account_number>")
+            print("  fincheck ewallet <wallet> <phone_number>")
+        return
+
+    if args.version:
+        print(f"v{VERSION}")
+        return
+
+    {
+        "list": cmd_list,
+        "bank": cmd_bank,
+        "ewallet": cmd_ewallet,
+        "bulk": cmd_bulk,
+        "gen-bulk": cmd_gen_bulk,
+    }.get(args.command, parser.print_help)(args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        print_warning("Interrupted by user. Exiting safely.")
+        sys.exit(130)
