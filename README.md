@@ -127,8 +127,8 @@ Developer **tidak bertanggung jawab atas penyalahgunaan**.
 ## 🙏 Special Thanks
 
 **API Provider**
-Restu Fadhilah
-[https://www.facebook.com/restugbk/](Restu Fadhilah)
+
+[Restu Fadhilah](https://www.facebook.com/restugbk/)
 
 ---
 
