@@ -139,7 +139,7 @@ Developer **tidak bertanggung jawab atas penyalahgunaan**.
 
 ## ☕ Support
 
-[![☕ Trakteer](https://img.shields.io/badge/☕%20Trakteer-red?style=flat-square&logo=coffee&logoColor=white)](https://trakteer.id/ilhamrzr)
+[![☕ Trakteer](https://img.shields.io/badge/☕%20Trakteer-red?style=flat-square&logo=coffee&logoColor=white)](https://trakteer.id/ilhamrzr/tip)
 [![☕ Saweria](https://img.shields.io/badge/☕%20Saweria-6f4e37?style=flat-square&logo=coffee&logoColor=white)](https://saweria.co/ilhamrzr)
 
 ---
