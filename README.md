@@ -1,5 +1,10 @@
 # fincheck
 
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/ilhamrzr/fincheck" alt="release">
+  <img src="https://img.shields.io/github/license/ilhamrzr/fincheck" alt="license">
+</p>
+
 **fincheck** adalah CLI tool berbasis API untuk membantu validasi akun bank dan e-wallet. Tool ini ditujukan untuk keperluan pengujian, riset, dan edukasi, serta digunakan secara legal dan etis.
 
 ---
@@ -136,12 +141,6 @@ Developer **tidak bertanggung jawab atas penyalahgunaan**.
 
 [![☕ Trakteer](https://img.shields.io/badge/☕%20Trakteer-red?style=flat-square&logo=coffee&logoColor=white)](https://trakteer.id/ilhamrzr)
 [![☕ Saweria](https://img.shields.io/badge/☕%20Saweria-6f4e37?style=flat-square&logo=coffee&logoColor=white)](https://saweria.co/ilhamrzr)
-
----
-
-## 📄 License
-
-MIT License
 
 ---
 
