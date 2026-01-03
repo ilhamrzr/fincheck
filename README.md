@@ -129,6 +129,16 @@ Developer **tidak bertanggung jawab atas penyalahgunaan**.
 
 ---
 
+## PRIVACY NOTICE
+
+Fincheck mengirimkan data sensitif (mis. nomor rekening dan nomor telepon)
+ke layanan pihak ketiga untuk keperluan verifikasi. Gunakan alat ini hanya
+jika Anda memiliki izin yang sah untuk memproses data tersebut.
+
+Untuk panduan lebih lengkap, lihat [PRIVACY.md](PRIVACY.md).
+
+---
+
 ## 🙏 Special Thanks
 
 **API Provider**
